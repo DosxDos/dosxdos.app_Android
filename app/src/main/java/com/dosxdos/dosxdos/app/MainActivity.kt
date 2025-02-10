@@ -70,6 +70,7 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         // Si hay historial, navega hacia atrás en lugar de cerrar la actividad
         val webView = binding.webView
