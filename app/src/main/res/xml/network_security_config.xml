@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Permitir HTTP (en producción, usa HTTPS siempre que sea posible) -->
+        <domain includeSubdomains="true">dosxdos.app.iidos.com</domain>
+    </domain-config>
+
+    <!-- Si necesitas tráfico HTTP en toda la app -->
+    <base-config cleartextTrafficPermitted="true"/>
+</network-security-config>
