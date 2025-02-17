@@ -15,6 +15,7 @@ import com.dosxdos.dosxdos.app.R
 import com.dosxdos.dosxdos.app.databinding.ActivitySplashBinding
 import java.io.File
 import java.io.FileOutputStream
+import java.io.ObjectInput
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
@@ -153,10 +154,11 @@ class Splash : AppCompatActivity() {
             val fileName = uri.lastPathSegment ?: return
             val cacheFile = File(filesDir, fileName) // 📌 Usa filesDir en lugar de cacheDir
 
-            // Si el archivo ya existe, no lo vuelve a descargar
+            // Si el archivo ya existe, lo borro para volver a cachearlo
+
             if (cacheFile.exists()) {
-                Log.d("Splash", "Archivo en caché encontrado: $fileName")
-                return
+                cacheFile.delete()
+                Log.d("Splash", "Archivo en caché reemplazado: $fileName")
             }
 
             val url = URL(urlString)

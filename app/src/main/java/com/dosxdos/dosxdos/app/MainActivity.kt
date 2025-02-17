@@ -20,15 +20,18 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.forEach
 import com.dosxdos.dosxdos.app.databinding.ActivityMainBinding
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import kotlin.math.log
+import java.net.HttpURLConnection
+import java.net.URL
 
 
 class MainActivity : AppCompatActivity() {
@@ -126,9 +129,10 @@ class MainActivity : AppCompatActivity() {
                     getCachedWebResource(cacheFile, url)
                 } else {
                     super.shouldInterceptRequest(view, request)
+                    //Actualizar la url en la cache
+                    overWriteUrl(cacheFile, url)
                 }
             }
-
 
 
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
@@ -160,6 +164,43 @@ class MainActivity : AppCompatActivity() {
         // 🔹 Cargar la URL principal
         webView.loadUrl("https://dosxdos.app.iidos.com/")
     }
+
+    private fun overWriteUrl(file: File, url: String): WebResourceResponse? {
+        return try {
+            // Si el archivo ya existe, lo eliminamos antes de descargar el nuevo contenido
+            if (file.exists()) {
+                file.delete()
+                Log.d("WebView", "Archivo en caché reemplazado: ${file.absolutePath}")
+            }
+
+            // Crear una nueva conexión a la URL
+            val connection = URL(url).openConnection() as HttpURLConnection
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+
+            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                val inputStream = connection.inputStream
+                val outputStream = FileOutputStream(file)
+
+                inputStream.copyTo(outputStream)
+                inputStream.close()
+                outputStream.close()
+
+                // Devolver el archivo actualizado como WebResourceResponse
+                Log.d("WebView", "Archivo guardado y reemplazado en caché: ${file.absolutePath}")
+
+                // Cargar el archivo de nuevo como respuesta
+                return WebResourceResponse("text/html", "UTF-8", FileInputStream(file))
+            } else {
+                Log.e("WebView", "Error al descargar el archivo: ${connection.responseCode}")
+                null
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
 
     private fun getCachedFile(url: String): File {
         val uri = Uri.parse(url)
