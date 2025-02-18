@@ -11,6 +11,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.dosxdos.dosxdos.app.MainActivity
+import com.dosxdos.dosxdos.app.Nativo.Notificaciones
 import com.dosxdos.dosxdos.app.R
 import com.dosxdos.dosxdos.app.databinding.ActivitySplashBinding
 import java.io.File

@@ -1,6 +1,7 @@
 package com.dosxdos.dosxdos.app
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -23,9 +24,11 @@ import android.webkit.WebViewClient
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.forEach
+import com.dosxdos.dosxdos.app.Nativo.Notificaciones
 import com.dosxdos.dosxdos.app.databinding.ActivityMainBinding
 import java.io.File
 import java.io.FileInputStream
@@ -38,16 +41,20 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding // Clase de binding generada automáticamente
     private val PERMISSIONS_REQUEST_CODE = 1001
+    private lateinit var firebaseTokenManager: Notificaciones
 
+    @SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private val REQUIRED_PERMISSIONS = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         arrayOf(
             Manifest.permission.CAMERA,
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.MANAGE_EXTERNAL_STORAGE, // Para Android 11
-            Manifest.permission.READ_EXTERNAL_STORAGE,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE
+            Manifest.permission.POST_NOTIFICATIONS,
+            //Manifest.permission.MANAGE_EXTERNAL_STORAGE // Para Android 11
+            //Manifest.permission.READ_EXTERNAL_STORAGE,
+            //Manifest.permission.WRITE_EXTERNAL_STORAGE
         )
     } else {
         arrayOf(
@@ -55,6 +62,7 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.POST_NOTIFICATIONS,
             Manifest.permission.READ_EXTERNAL_STORAGE,
             Manifest.permission.WRITE_EXTERNAL_STORAGE
         )
@@ -64,12 +72,16 @@ class MainActivity : AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
             val deniedPermissions = permissions.filterValues { !it }.keys
             if (deniedPermissions.isNotEmpty()) {
+
                 Toast.makeText(this, "Permisos denegados: $deniedPermissions", Toast.LENGTH_LONG).show()
             } else {
-                Toast.makeText(this, "Todos los permisos concedidos correctamente", Toast.LENGTH_SHORT).show()
+                // Ahora, carga el WebView y realiza otras configuraciones
+                logica() // 🔹 Solo ahora que los permisos fueron concedidos
+
             }
         }
 
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -79,13 +91,23 @@ class MainActivity : AppCompatActivity() {
 
         requestPermissions() // 🔹 Solicitar permisos al iniciar la app
 
-        logica()
+        // Verificar si los permisos ya están concedidos y ejecutar la lógica
+        if (arePermissionsGranted()) {
+            logica() // Ejecuta la lógica si los permisos ya están concedidos
+        }
 
         // Restaurar el estado del WebView si hay uno guardado
         if (savedInstanceState != null) {
             binding.webView.restoreState(savedInstanceState)
         } else {
             binding.webView.loadUrl("https://dosxdos.app.iidos.com/")
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    private fun arePermissionsGranted() : Boolean {
+        return REQUIRED_PERMISSIONS.all {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
         }
     }
 
@@ -98,6 +120,9 @@ class MainActivity : AppCompatActivity() {
         webSettings.javaScriptEnabled = true
         webSettings.domStorageEnabled = true
         webSettings.databaseEnabled = true
+
+        webView.settings.domStorageEnabled = true
+        //webView.settings.cacheMode = WebSettings.LOAD_DEFAULT
 
         // 🔹 Configurar caché correctamente
         webSettings.cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK // Usa caché si no hay internet
@@ -120,6 +145,32 @@ class MainActivity : AppCompatActivity() {
 
         // 🔹 Interceptar solicitudes y gestionar caché
         webView.webViewClient = object : WebViewClient() {
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                // Inicializamos el firebaseTokenManager
+                firebaseTokenManager = Notificaciones(this@MainActivity)
+
+                // Obtener el token de manera asincrónica
+                firebaseTokenManager.getStoredToken { token ->
+                    // Comprobamos si el token no es nulo ni vacío
+                    if (!token.isNullOrEmpty()) {
+                        // Ejecutar el script para almacenar el token en el localStorage
+                        val script = """
+                            javascript:(function() {
+                                window.localStorage.setItem('tokenNativo', '$token');
+                                console.log('Token inyectado correctamente en localStorage $token');
+                                asignarTokenNativo()
+                            })()"""
+                        // Cargar el script en el WebView
+                        view?.loadUrl(script)
+                    } else {
+                        Log.d("WebView", "Token vacío, no se inyecta.")
+                    }
+                }
+            }
+
+
+
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                 val url = request?.url.toString()
                 val cacheFile = getCachedFile(url)
@@ -134,7 +185,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                 super.onReceivedError(view, request, error)
 
@@ -148,6 +198,8 @@ class MainActivity : AppCompatActivity() {
                     Log.e("WebView", "Archivo no encontrado en caché. No se puede cargar sin conexión.")
                 }
             }
+
+
         }
 
         // 🔹 Configurar permisos en WebChromeClient
@@ -241,6 +293,8 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private fun requestPermissions() {
         val missingPermissions = REQUIRED_PERMISSIONS.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
