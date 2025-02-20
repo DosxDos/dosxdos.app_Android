@@ -90,17 +90,22 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root) // Establece el layout con el binding
 
         requestPermissions() // 🔹 Solicitar permisos al iniciar la app
-
+        val url = intent.getStringExtra("url")
         // Verificar si los permisos ya están concedidos y ejecutar la lógica
-        if (arePermissionsGranted()) {
+        if (arePermissionsGranted() && url == null) {
             logica() // Ejecuta la lógica si los permisos ya están concedidos
         }
 
         // Restaurar el estado del WebView si hay uno guardado
-        if (savedInstanceState != null) {
-            binding.webView.restoreState(savedInstanceState)
-        } else {
-            binding.webView.loadUrl("https://dosxdos.app.iidos.com/")
+        //if (savedInstanceState != null) {
+        //    binding.webView.restoreState(savedInstanceState)
+        //} else {
+        //    binding.webView.loadUrl("https://dosxdos.app.iidos.com/")
+        //}
+        // Verifica si hay una URL pasada a través del Intent
+        if (url != null) {
+            // Cargar la URL en el WebView
+            logica(url)
         }
     }
 
@@ -112,7 +117,7 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    private fun logica() {
+    private fun logica(url: String = "https://dosxdos.app.iidos.com/") {
         val webView = binding.webView
         val webSettings = webView.settings
 
@@ -154,15 +159,19 @@ class MainActivity : AppCompatActivity() {
                 firebaseTokenManager.getStoredToken { token ->
                     // Comprobamos si el token no es nulo ni vacío
                     if (!token.isNullOrEmpty()) {
-                        // Ejecutar el script para almacenar el token en el localStorage
-                        val script = """
+                        if(url == "https://dosxdos.app.iidos.com/index.html") {
+                            // Ejecutar el script para almacenar el token en el localStorage
+                            val script = """
                             javascript:(function() {
                                 window.localStorage.setItem('tokenNativo', '$token');
                                 console.log('Token inyectado correctamente en localStorage $token');
-                                asignarTokenNativo()
+                                asignarTokenNativo()                        
                             })()"""
-                        // Cargar el script en el WebView
-                        view?.loadUrl(script)
+                            // Cargar el script en el WebView
+                            view?.loadUrl(script)
+                        }else{
+                            Log.d("WebView", "El token no se injecta si no esta en la página principal")
+                        }
                     } else {
                         Log.d("WebView", "Token vacío, no se inyecta.")
                     }
@@ -175,13 +184,14 @@ class MainActivity : AppCompatActivity() {
                 val url = request?.url.toString()
                 val cacheFile = getCachedFile(url)
 
-                return if (!isNetworkAvailable() && cacheFile.exists()) {
+                if (!isNetworkAvailable() && cacheFile.exists()) {
                     Log.d("WebView", "Cargando desde caché: ${cacheFile.absolutePath}")
-                    getCachedWebResource(cacheFile, url)
+                    return getCachedWebResource(cacheFile, url)
                 } else {
-                    super.shouldInterceptRequest(view, request)
-                    //Actualizar la url en la cache
+                    // Si hay conexión a Internet, permitir la solicitud normal
+                    // Actualizar la caché con el nuevo recurso si es necesario
                     overWriteUrl(cacheFile, url)
+                    return super.shouldInterceptRequest(view, request)
                 }
             }
 
@@ -214,7 +224,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 🔹 Cargar la URL principal
-        webView.loadUrl("https://dosxdos.app.iidos.com/")
+        webView.loadUrl(url)
     }
 
     private fun overWriteUrl(file: File, url: String): WebResourceResponse? {

@@ -37,7 +37,7 @@ class Notificaciones(private val context: Context) {
         }
     }
 
-    private fun saveFCMToken(token: String) {
+    fun saveFCMToken(token: String) {
         // Almacena el token en SharedPreferences.
         val editor = sharedPreferences.edit()
         editor.putString(tokenKey, token)

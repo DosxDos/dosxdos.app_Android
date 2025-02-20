@@ -118,7 +118,14 @@ class Splash : AppCompatActivity() {
         "https://dosxdos.app.iidos.com/img/clientes2.png",
         "https://dosxdos.app.iidos.com/img/sincronizar.png",
         "https://dosxdos.app.iidos.com/img/historial.png",
-        "https://dosxdos.app.iidos.com/css/tailwindmain.css"
+        "https://dosxdos.app.iidos.com/css/tailwindmain.css",
+        "https://dosxdos.app.iidos.com/img/dosxdoslogoNuevoRojo.png",
+        "https://dosxdos.app.iidos.com/js/utils/notificaciones.js",
+        "https://dosxdos.app.iidos.com/js/utils/notificaciones2.js",
+        "https://dosxdos.app.iidos.com/js/utils/loadFirebase.js",
+        "https://dosxdos.app.iidos.com/img/bell.gif",
+        "https://dosxdos.app.iidos.com/img/bell2.png",
+        "https://dosxdos.app.iidos.com/img/Isotipo-38.png"
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
