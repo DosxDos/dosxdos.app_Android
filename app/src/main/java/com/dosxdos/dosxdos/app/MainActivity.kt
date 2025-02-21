@@ -2,8 +2,10 @@ package com.dosxdos.dosxdos.app
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Uri
@@ -30,6 +32,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.forEach
 import com.dosxdos.dosxdos.app.Nativo.Notificaciones
 import com.dosxdos.dosxdos.app.databinding.ActivityMainBinding
+import com.google.gson.Gson
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -42,6 +45,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding // Clase de binding generada automáticamente
     private val PERMISSIONS_REQUEST_CODE = 1001
     private lateinit var firebaseTokenManager: Notificaciones
+
+    // Crear el BroadcastReceiver para recibir mensajes de Firebase
+    private val firebaseReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            // Obtener el mensaje de los datos extraídos del Intent
+            val jsonMessage = intent?.getStringExtra("firebaseMessage")
+            Log.d("WebView", "Mensaje recibido en MainActivity: $jsonMessage")
+            val messageData = Gson().fromJson(jsonMessage, Map::class.java) as Map<String, String>
+            injectMessageIntoWebView(jsonMessage)
+        }
+    }
 
     @SuppressLint("ObsoleteSdkInt")
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
@@ -81,6 +95,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,6 +103,14 @@ class MainActivity : AppCompatActivity() {
         // Inicializa el binding
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root) // Establece el layout con el binding
+
+        // Registrar el receiver solo si el SDK es Oreo (API 26) o superior
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val filter = IntentFilter("com.dosxdos.dosxdos.FIREBASE_MESSAGE")
+            registerReceiver(firebaseReceiver, filter, Context.RECEIVER_EXPORTED)
+        }
+
+
 
         requestPermissions() // 🔹 Solicitar permisos al iniciar la app
         val url = intent.getStringExtra("url")
@@ -108,6 +131,26 @@ class MainActivity : AppCompatActivity() {
             logica(url)
         }
     }
+    // Método para inyectar el mensaje en el WebView usando JavaScript
+    private fun injectMessageIntoWebView(message: String?) {
+        val webView = binding.webView
+        val script = """
+            javascript:(function() {
+                window.localStorage.setItem('dataNotificacionNativa', '$message');
+                console.log('Mensaje guardado en localStorage: ' + '$message');
+                notificarWebApp()
+            })()
+        """
+        webView.evaluateJavascript(script) { result ->
+            Log.d("WebView", "Resultado del script: $result")
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Desregistrar el BroadcastReceiver al destruir la actividad
+        unregisterReceiver(firebaseReceiver)
+    }
 
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private fun arePermissionsGranted() : Boolean {
@@ -127,9 +170,6 @@ class MainActivity : AppCompatActivity() {
         webSettings.databaseEnabled = true
 
         webView.settings.domStorageEnabled = true
-        //webView.settings.cacheMode = WebSettings.LOAD_DEFAULT
-
-        // 🔹 Configurar caché correctamente
         webSettings.cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK // Usa caché si no hay internet
 
         // 🔹 Habilitar acceso a archivos y contenido local
@@ -152,33 +192,30 @@ class MainActivity : AppCompatActivity() {
         webView.webViewClient = object : WebViewClient() {
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                // Inicializamos el firebaseTokenManager
                 firebaseTokenManager = Notificaciones(this@MainActivity)
 
                 // Obtener el token de manera asincrónica
                 firebaseTokenManager.getStoredToken { token ->
                     // Comprobamos si el token no es nulo ni vacío
                     if (!token.isNullOrEmpty()) {
-                        if(url == "https://dosxdos.app.iidos.com/index.html") {
+                        if (url == "https://dosxdos.app.iidos.com/index.html") {
                             // Ejecutar el script para almacenar el token en el localStorage
                             val script = """
-                            javascript:(function() {
-                                window.localStorage.setItem('tokenNativo', '$token');
-                                console.log('Token inyectado correctamente en localStorage $token');
-                                asignarTokenNativo()                        
-                            })()"""
+                        javascript:(function() {
+                            window.localStorage.setItem('tokenNativo', '$token');
+                            console.log('Token inyectado correctamente en localStorage $token');
+                            asignarTokenNativo()                        
+                        })()"""
                             // Cargar el script en el WebView
                             view?.loadUrl(script)
-                        }else{
-                            Log.d("WebView", "El token no se injecta si no esta en la página principal")
+                        } else {
+                            Log.d("WebView", "El token no se inyecta si no está en la página principal")
                         }
                     } else {
                         Log.d("WebView", "Token vacío, no se inyecta.")
                     }
                 }
             }
-
-
 
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                 val url = request?.url.toString()
@@ -208,8 +245,6 @@ class MainActivity : AppCompatActivity() {
                     Log.e("WebView", "Archivo no encontrado en caché. No se puede cargar sin conexión.")
                 }
             }
-
-
         }
 
         // 🔹 Configurar permisos en WebChromeClient

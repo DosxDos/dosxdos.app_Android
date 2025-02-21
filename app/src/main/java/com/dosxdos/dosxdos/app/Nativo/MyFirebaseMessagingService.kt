@@ -15,6 +15,7 @@ import com.dosxdos.dosxdos.app.MainActivity
 import com.dosxdos.dosxdos.app.R
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.google.gson.Gson
 import java.net.URL
 
 class MyFirebaseMessagingService : FirebaseMessagingService() {
@@ -25,10 +26,29 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         if (remoteMessage.data.isNotEmpty()) {
             // Mensaje de datos recibido
             Log.d("Firebase", "Mensaje de datos recibido: ${remoteMessage.data}")
-            //si esta en segundo plano
-            showNotification(remoteMessage)
+
+            // Extraer el mensaje de los datos de Firebase
+            val messageData = remoteMessage.data
+
+            // Verifica si el mensaje no está vacío
+            if (messageData != null && messageData.isNotEmpty()) {
+                // Convertir el Map a JSON
+                val jsonMessage = Gson().toJson(messageData)
+
+                Log.d("Firebase", "Mensaje de datos recibido: ${jsonMessage}")
+
+                // Enviar un Broadcast para notificar a MainActivity con el mensaje
+                val intent = Intent("com.dosxdos.dosxdos.FIREBASE_MESSAGE") // Asegúrate de que la acción sea correcta
+                intent.putExtra("firebaseMessage", jsonMessage)
+                sendBroadcast(intent)  // Enviar el mensaje a través del BroadcastReceiver
+
+                // Mostrar la notificación (opcional)
+                showNotification(remoteMessage)
+            }
         }
     }
+
+
 
     private fun showNotification(message: RemoteMessage) {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -54,7 +74,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             .setContentTitle(message.data["title"] ?: "Notificación")
             .setContentText(message.data["body"] ?: "Contenido de la notificación")
             .setSmallIcon(R.drawable.isotipo_con_pastilla_35)
-            .setLargeIcon(BitmapFactory.decodeResource(resources, R.drawable.ic_launcher_foreground))
+            .setLargeIcon(BitmapFactory.decodeResource(resources, R.drawable.ic_launcher_background))
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)

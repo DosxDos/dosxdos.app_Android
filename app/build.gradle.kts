@@ -51,8 +51,9 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.analytics)
-    implementation("com.google.firebase:firebase-messaging:24.1.0")
-    implementation("com.google.firebase:firebase-core:21.1.1")
+    implementation(libs.gson)
+    implementation(libs.firebase.messaging)
+    implementation(libs.firebase.core)
 
 
     // Make sure to update any other dependencies to compatible versions as needed

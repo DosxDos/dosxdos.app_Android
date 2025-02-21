@@ -1,9 +1,19 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Base.Theme.Dosxdos" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+        <!-- Establecer color principal (que afectará la barra superior y otros elementos) -->
+        <item name="colorPrimary">@color/black</item>  <!-- Aquí usas un color negro -->
+        <item name="colorPrimaryVariant">@color/black</item> <!-- Para la barra de estado o la ActionBar -->
+        <item name="colorOnPrimary">@android:color/white</item> <!-- Color del texto/iconos en la barra de acción -->
+
+        <!-- Barra de estado: color de la barra superior (StatusBar) -->
+        <item name="android:statusBarColor">@color/black</item>  <!-- Cambia a negro -->
+        <item name="android:windowLightStatusBar">false</item> <!-- Asegura que los íconos de la barra de estado sean blancos si tienes fondo oscuro -->
+
+        <!-- Cambiar el color de la barra de navegación -->
+        <item name="android:navigationBarColor">@color/black</item>
     </style>
+
 
     <style name="Theme.Dosxdos" parent="Base.Theme.Dosxdos" />
 
