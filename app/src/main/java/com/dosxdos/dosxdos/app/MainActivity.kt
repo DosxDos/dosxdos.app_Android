@@ -2,6 +2,7 @@ package com.dosxdos.dosxdos.app
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -13,9 +14,13 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
+import android.util.Base64
 import android.util.Log
+import android.view.MotionEvent
 import android.webkit.GeolocationPermissions
+import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -30,12 +35,14 @@ import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.forEach
+import com.dosxdos.dosxdos.app.Clases.FileData
 import com.dosxdos.dosxdos.app.Nativo.Notificaciones
 import com.dosxdos.dosxdos.app.databinding.ActivityMainBinding
 import com.google.gson.Gson
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -44,7 +51,9 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding // Clase de binding generada automáticamente
     private val PERMISSIONS_REQUEST_CODE = 1001
+    private val FILE_CHOOSER_REQUEST_CODE = 1002
     private lateinit var firebaseTokenManager: Notificaciones
+    private var mFilePathCallback: ValueCallback<Array<Uri>>? = null
 
     // Crear el BroadcastReceiver para recibir mensajes de Firebase
     private val firebaseReceiver = object : BroadcastReceiver() {
@@ -57,30 +66,45 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    @SuppressLint("ObsoleteSdkInt")
-    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-    private val REQUIRED_PERMISSIONS = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        arrayOf(
-            Manifest.permission.CAMERA,
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.POST_NOTIFICATIONS,
-            //Manifest.permission.MANAGE_EXTERNAL_STORAGE // Para Android 11
-            //Manifest.permission.READ_EXTERNAL_STORAGE,
-            //Manifest.permission.WRITE_EXTERNAL_STORAGE
-        )
-    } else {
-        arrayOf(
-            Manifest.permission.CAMERA,
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.POST_NOTIFICATIONS,
-            Manifest.permission.READ_EXTERNAL_STORAGE,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE
-        )
+    // Definir los permisos requeridos de acuerdo a la versión de Android
+    private val REQUIRED_PERMISSIONS = getRequiredPermissions()
+
+    // Función que devuelve los permisos requeridos según la versión de Android
+    private fun getRequiredPermissions(): Array<String> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11 (API 30) y superior
+            arrayOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.POST_NOTIFICATIONS,
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Android 10 (API 29) - Scoped Storage, pero con permisos para leer/escribir archivos específicos
+            arrayOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.POST_NOTIFICATIONS,
+                Manifest.permission.READ_EXTERNAL_STORAGE, // Permiso para leer archivos específicos
+                Manifest.permission.WRITE_EXTERNAL_STORAGE // Permiso para escribir archivos específicos
+            )
+        } else {
+            // Para versiones inferiores a Android 10, permisos tradicionales de almacenamiento
+            arrayOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.POST_NOTIFICATIONS,
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            )
+        }
     }
+
 
     private val requestPermissionsLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
@@ -118,13 +142,6 @@ class MainActivity : AppCompatActivity() {
         if (arePermissionsGranted() && url == null) {
             logica() // Ejecuta la lógica si los permisos ya están concedidos
         }
-
-        // Restaurar el estado del WebView si hay uno guardado
-        //if (savedInstanceState != null) {
-        //    binding.webView.restoreState(savedInstanceState)
-        //} else {
-        //    binding.webView.loadUrl("https://dosxdos.app.iidos.com/")
-        //}
         // Verifica si hay una URL pasada a través del Intent
         if (url != null) {
             // Cargar la URL en el WebView
@@ -164,6 +181,8 @@ class MainActivity : AppCompatActivity() {
         val webView = binding.webView
         val webSettings = webView.settings
 
+        webView.addJavascriptInterface(this, "Android")
+
         // 🔹 Habilitar JavaScript y almacenamiento local
         webSettings.javaScriptEnabled = true
         webSettings.domStorageEnabled = true
@@ -192,6 +211,12 @@ class MainActivity : AppCompatActivity() {
         webView.webViewClient = object : WebViewClient() {
 
             override fun onPageFinished(view: WebView?, url: String?) {
+                // Inyectar un script de JavaScript en el WebView que escuche los clics en el campo input[type="file"]
+                // Inyectar el script de JavaScript para escuchar el clic en el campo input[type="file"]
+                injectFileInputHandler(view)
+
+                injectFilesFunction(view)
+
                 firebaseTokenManager = Notificaciones(this@MainActivity)
 
                 // Obtener el token de manera asincrónica
@@ -246,20 +271,183 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-
-        // 🔹 Configurar permisos en WebChromeClient
+        // Configurar WebChromeClient para manejar la selección de archivos
         webView.webChromeClient = object : WebChromeClient() {
-            override fun onPermissionRequest(request: PermissionRequest) {
-                runOnUiThread { request.grant(request.resources) }
-            }
+            override fun onShowFileChooser(
+                view: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                mFilePathCallback = filePathCallback
+                val intent = fileChooserParams?.createIntent()
+                intent?.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true) // Permitir selección múltiple de archivos
 
-            override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
-                callback?.invoke(origin, true, false)
+                try {
+                    if (intent != null) {
+                        startActivityForResult(intent, FILE_CHOOSER_REQUEST_CODE)
+                    }
+                } catch (e: ActivityNotFoundException) {
+                    mFilePathCallback?.onReceiveValue(null)
+                    mFilePathCallback = null
+                    return false
+                }
+                return true
             }
         }
-
         // 🔹 Cargar la URL principal
         webView.loadUrl(url)
+    }
+
+    private fun injectFileInputHandler(webView: WebView?) {
+        webView?.evaluateJavascript("""
+        (function() {
+            var input = document.querySelector('input[type="file"]');
+            if (input) {
+                input.addEventListener('click', function(event) {
+                    event.preventDefault();  // Evitar la acción predeterminada
+                    event.stopPropagation();  // Evitar la propagación del evento
+                    
+                    // Verificar si ya hemos llamado al método
+                    if (!input.hasAttribute('data-clicked')) {
+                        input.setAttribute('data-clicked', 'true');  // Marcar el input como "ya clickeado"
+                        Android.openFileChooser();  // Llamar a la función de la interfaz nativa
+                        console.log('Script inyectado correctamente');
+
+                        // Esperar 1 segundo antes de restablecer el atributo
+                        setTimeout(function() {
+                            input.removeAttribute('data-clicked');  // Restablecer el atributo después de 1 segundo
+                            console.log('data-clicked restablecido después de 1 segundo');
+                        }, 1000);
+                    }
+                });
+            } else {
+                console.log('No se encontró input[type="file"]');
+            }
+        })();
+    """, { result ->
+            Log.d("WebView", "Script inyectado, resultado: $result")
+        })
+    }
+
+
+
+
+    @JavascriptInterface
+    fun openFileChooser() {
+        Log.d("WebView", "openFileChooser llamada desde JavaScript")
+
+        // Forzar la apertura del selector de archivos
+        val intent = Intent(Intent.ACTION_GET_CONTENT)
+        intent.type = "*/*"  // O puedes especificar tipos de archivos como "image/*" para solo imágenes
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)  // Permitir la selección de múltiples archivos
+
+        try {
+            startActivityForResult(intent, FILE_CHOOSER_REQUEST_CODE)
+        } catch (e: ActivityNotFoundException) {
+            Log.e("WebView", "No hay actividad para manejar la selección de archivos: ${e.message}")
+        }
+    }
+
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == FILE_CHOOSER_REQUEST_CODE && resultCode == RESULT_OK) {
+            // Obtener las URIs de los archivos seleccionados
+            val results = if (data != null) {
+                getResultUri(data)
+            } else {
+                null
+            }
+
+            // Si los resultados no son nulos, pasarlos al callback
+            if (results != null) {
+                // Enviar los resultados directamente a la WebView sin inyectar el DOM
+                passFilesToWebView(results)
+            } else {
+                passFilesToWebView(null)
+            }
+        }
+    }
+
+    // Obtener las URIs de los archivos seleccionados
+    private fun getResultUri(data: Intent?): Array<Uri>? {
+        return if (data?.clipData != null) {
+            // Si se seleccionaron múltiples archivos, obtenemos los URIs de clipData
+            val itemCount = data.clipData?.itemCount ?: 0
+            val uris = Array(itemCount) { i ->
+                data.clipData?.getItemAt(i)?.uri ?: Uri.EMPTY
+            }
+            uris
+        } else {
+            // Si solo se seleccionó un archivo, obtenemos la URI directamente de data
+            arrayOf(data?.data ?: Uri.EMPTY)
+        }
+    }
+
+    private fun injectFilesFunction(view: WebView?) {
+        val jsCode = """
+        function injectFilesToInput(files) {
+            var input = document.querySelector('input[type="file"]');
+            if (input) {
+                var dataTransfer = new DataTransfer();
+
+                files.forEach(function(file) {
+                    var fileName = file.name;
+                    var fileType = file.type;
+
+                    var byteCharacters = atob(file.base64Data); // Decodificar el Base64
+                    var byteArrays = [];
+
+                    for (var offset = 0; offset < byteCharacters.length; offset += 512) {
+                        var slice = byteCharacters.slice(offset, offset + 512);
+                        var byteNumbers = new Array(slice.length);
+                        for (var i = 0; i < slice.length; i++) {
+                            byteNumbers[i] = slice.charCodeAt(i);
+                        }
+                        byteArrays.push(new Uint8Array(byteNumbers));
+                    }
+
+                    var blob = new Blob(byteArrays, { type: fileType });
+                    var newFile = new File([blob], fileName, { type: fileType });
+
+                    dataTransfer.items.add(newFile);
+                });
+
+                input.files = dataTransfer.files;
+
+                var event = new Event('change');
+                input.dispatchEvent(event);
+
+                console.log('Archivos inyectados correctamente y evento "change" disparado');
+            }
+        }
+    """
+        view?.evaluateJavascript(jsCode, null)
+    }
+
+
+    private fun passFilesToWebView(files: Array<Uri>?) {
+        val fileObjects = files?.map { fileUri ->
+            val base64Data = getFileBase64(fileUri)  // Convierte el archivo a Base64
+            val fileName = fileUri.lastPathSegment ?: "unknown"
+            FileData(fileName, "image/jpeg", base64Data)  // Asignamos un tipo MIME como ejemplo
+        } ?: emptyList()
+
+        // Convertir la lista de objetos a JSON
+        val jsonFiles = Gson().toJson(fileObjects)
+
+        // Llamar a la función JavaScript con los archivos seleccionados
+        binding.webView.evaluateJavascript("""
+        injectFilesToInput($jsonFiles);
+    """, null)
+    }
+
+    // Función para convertir el archivo a Base64
+    private fun getFileBase64(uri: Uri): String {
+        val inputStream = contentResolver.openInputStream(uri) ?: return ""
+        val byteArray = inputStream.readBytes()
+        return Base64.encodeToString(byteArray, Base64.DEFAULT)
     }
 
     private fun overWriteUrl(file: File, url: String): WebResourceResponse? {
@@ -337,46 +525,57 @@ class MainActivity : AppCompatActivity() {
         return activeNetwork?.isConnectedOrConnecting == true
     }
 
-
-
-    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private fun requestPermissions() {
         val missingPermissions = REQUIRED_PERMISSIONS.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }.toMutableList()
 
-        // 🔹 Si es Android 11+ y falta MANAGE_EXTERNAL_STORAGE, redirigir manualmente
+        // Si es Android 11+ y falta MANAGE_EXTERNAL_STORAGE, redirigir manualmente
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (!Environment.isExternalStorageManager()) {
+                // Si el permiso no está habilitado, redirigir al usuario a la configuración
                 missingPermissions.remove(Manifest.permission.MANAGE_EXTERNAL_STORAGE)
                 showStoragePermissionDialog()
             }
         }
 
+        // Si hay permisos faltantes, solicitarlos
         if (missingPermissions.isNotEmpty()) {
             requestPermissionsLauncher.launch(missingPermissions.toTypedArray())
         }
     }
 
     private fun showStoragePermissionDialog() {
+        // Mostrar un diálogo para informar al usuario que necesita habilitar el acceso completo
         Toast.makeText(this, "Necesitas permitir acceso total a archivos", Toast.LENGTH_LONG).show()
+
+        // Redirigir al usuario para que habilite el permiso MANAGE_EXTERNAL_STORAGE
         val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
         intent.data = Uri.parse("package:$packageName")
-        startActivity(intent)
+        startActivityForResult(intent, 100) // Código de solicitud único
     }
 
 
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        // Si hay historial, navega hacia atrás en lugar de cerrar la actividad
+        // Limpiar el ValueCallback para permitir que se reabra el selector de archivos
+        mFilePathCallback?.onReceiveValue(null)
+        mFilePathCallback = null
+
         val webView = binding.webView
+
+        // Si el WebView puede ir atrás en el historial
         if (webView.canGoBack()) {
+            // Si el WebView tiene historial, navegar hacia atrás
             webView.goBack()
         } else {
+            // Si no hay historial, proceder con el comportamiento predeterminado
             super.onBackPressed()
         }
     }
+
+
 
     // Guardar estado del WebView cuando la actividad se destruye
     override fun onSaveInstanceState(outState: Bundle) {

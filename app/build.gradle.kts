@@ -54,6 +54,9 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.firebase.messaging)
     implementation(libs.firebase.core)
+    implementation(libs.android.maps.utils)
+    implementation(libs.maps.utils.ktx)
+    implementation(libs.play.services.auth)
 
 
     // Make sure to update any other dependencies to compatible versions as needed
