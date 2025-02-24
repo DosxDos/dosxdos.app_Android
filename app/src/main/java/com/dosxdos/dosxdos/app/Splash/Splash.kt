@@ -6,17 +6,11 @@ import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
-import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import com.dosxdos.dosxdos.app.MainActivity
-import com.dosxdos.dosxdos.app.Nativo.Notificaciones
-import com.dosxdos.dosxdos.app.R
 import com.dosxdos.dosxdos.app.databinding.ActivitySplashBinding
 import java.io.File
 import java.io.FileOutputStream
-import java.io.ObjectInput
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors

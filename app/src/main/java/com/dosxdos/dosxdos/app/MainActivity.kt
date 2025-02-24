@@ -50,7 +50,6 @@ import java.net.URL
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding // Clase de binding generada automáticamente
-    private val PERMISSIONS_REQUEST_CODE = 1001
     private val FILE_CHOOSER_REQUEST_CODE = 1002
     private lateinit var firebaseTokenManager: Notificaciones
     private var mFilePathCallback: ValueCallback<Array<Uri>>? = null
@@ -210,6 +209,25 @@ class MainActivity : AppCompatActivity() {
         // 🔹 Interceptar solicitudes y gestionar caché
         webView.webViewClient = object : WebViewClient() {
 
+            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                // Comprobamos si la URL es del dominio 'dosxdos'
+                if (url?.contains("dosxdos.app.iidos.com") == true) {
+                    // Si la URL pertenece a dosxdos, la cargamos internamente
+                    return super.shouldOverrideUrlLoading(view, url)
+                } else {
+                    // Si la URL pertenece a un dominio externo, la redirigimos al navegador o la cargamos desde la red
+                    if (!isNetworkAvailable()) {
+                        Toast.makeText(this@MainActivity, "Sin conexión a Internet", Toast.LENGTH_SHORT).show()
+                        return true  // No cargamos la URL en el WebView
+                    }
+
+                    // Aquí puedes agregar un código para abrir un navegador o continuar la carga de la URL de Google
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    startActivity(intent)
+                    return true
+                }
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 // Inyectar un script de JavaScript en el WebView que escuche los clics en el campo input[type="file"]
                 // Inyectar el script de JavaScript para escuchar el clic en el campo input[type="file"]
@@ -244,18 +262,35 @@ class MainActivity : AppCompatActivity() {
 
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                 val url = request?.url.toString()
-                val cacheFile = getCachedFile(url)
 
-                if (!isNetworkAvailable() && cacheFile.exists()) {
-                    Log.d("WebView", "Cargando desde caché: ${cacheFile.absolutePath}")
-                    return getCachedWebResource(cacheFile, url)
-                } else {
-                    // Si hay conexión a Internet, permitir la solicitud normal
-                    // Actualizar la caché con el nuevo recurso si es necesario
-                    overWriteUrl(cacheFile, url)
+                // Verificar si la URL pertenece al dominio de dosxdos
+                if (url.contains("dosxdos.app.iidos.com")) {
+                    // Si es del dominio de dosxdos, proceder con la carga normal
                     return super.shouldInterceptRequest(view, request)
                 }
+
+                // Si la URL pertenece a un dominio externo (como Google o anuncios), manejarla según la conexión
+                if (!isNetworkAvailable()) {
+                    // Si no hay conexión y el archivo está en caché, cargarlo desde la caché
+                    val cacheFile = getCachedFile(url)
+                    if (cacheFile.exists()) {
+                        Log.d("WebView", "Cargando desde caché: ${cacheFile.absolutePath}")
+                        return getCachedWebResource(cacheFile, url)
+                    } else {
+                        // Si no hay archivo en caché, no cargar nada y mostrar un mensaje de error
+                        Log.d("WebView", "No hay conexión y no hay archivo en caché para $url")
+                        return null  // No cargar nada en el WebView
+                    }
+                }
+
+                // Si hay conexión a Internet, permitir la solicitud normal
+                // Actualizar la caché con el nuevo recurso si es necesario
+                val cacheFile = getCachedFile(url)
+                overWriteUrl(cacheFile, url)
+
+                return super.shouldInterceptRequest(view, request)
             }
+
 
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                 super.onReceivedError(view, request, error)
@@ -530,31 +565,11 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }.toMutableList()
 
-        // Si es Android 11+ y falta MANAGE_EXTERNAL_STORAGE, redirigir manualmente
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!Environment.isExternalStorageManager()) {
-                // Si el permiso no está habilitado, redirigir al usuario a la configuración
-                missingPermissions.remove(Manifest.permission.MANAGE_EXTERNAL_STORAGE)
-                showStoragePermissionDialog()
-            }
-        }
-
         // Si hay permisos faltantes, solicitarlos
         if (missingPermissions.isNotEmpty()) {
             requestPermissionsLauncher.launch(missingPermissions.toTypedArray())
         }
     }
-
-    private fun showStoragePermissionDialog() {
-        // Mostrar un diálogo para informar al usuario que necesita habilitar el acceso completo
-        Toast.makeText(this, "Necesitas permitir acceso total a archivos", Toast.LENGTH_LONG).show()
-
-        // Redirigir al usuario para que habilite el permiso MANAGE_EXTERNAL_STORAGE
-        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-        intent.data = Uri.parse("package:$packageName")
-        startActivityForResult(intent, 100) // Código de solicitud único
-    }
-
 
 
     @Deprecated("Deprecated in Java")
