@@ -12,14 +12,9 @@ import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.provider.Settings
 import android.util.Base64
 import android.util.Log
-import android.view.MotionEvent
-import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
-import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -28,13 +23,12 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.view.forEach
+import com.dosxdos.dosxdos.app.Activities.ErrorPermisos
 import com.dosxdos.dosxdos.app.Clases.FileData
 import com.dosxdos.dosxdos.app.Nativo.Notificaciones
 import com.dosxdos.dosxdos.app.databinding.ActivityMainBinding
@@ -42,7 +36,6 @@ import com.google.gson.Gson
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -60,7 +53,6 @@ class MainActivity : AppCompatActivity() {
             // Obtener el mensaje de los datos extraídos del Intent
             val jsonMessage = intent?.getStringExtra("firebaseMessage")
             Log.d("WebView", "Mensaje recibido en MainActivity: $jsonMessage")
-            val messageData = Gson().fromJson(jsonMessage, Map::class.java) as Map<String, String>
             injectMessageIntoWebView(jsonMessage)
         }
     }
@@ -111,6 +103,9 @@ class MainActivity : AppCompatActivity() {
             if (deniedPermissions.isNotEmpty()) {
 
                 Toast.makeText(this, "Permisos denegados: $deniedPermissions", Toast.LENGTH_LONG).show()
+                val intent = Intent(this, ErrorPermisos::class.java)
+                startActivity(intent)
+                finish() // Finaliza la actividad actual
             } else {
                 // Ahora, carga el WebView y realiza otras configuraciones
                 logica() // 🔹 Solo ahora que los permisos fueron concedidos
@@ -145,6 +140,14 @@ class MainActivity : AppCompatActivity() {
         if (url != null) {
             // Cargar la URL en el WebView
             logica(url)
+        }
+        // Configura SwipeRefreshLayout
+        binding.swipeRefreshLayout.setOnRefreshListener {
+            // Recargar el WebView
+            binding.webView.reload()
+
+            // Detener la animación de refresco después de recargar
+            binding.swipeRefreshLayout.isRefreshing = false
         }
     }
     // Método para inyectar el mensaje en el WebView usando JavaScript
@@ -210,6 +213,13 @@ class MainActivity : AppCompatActivity() {
         webView.webViewClient = object : WebViewClient() {
 
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                if(url == "https://dosxdos.app.iidos.com/linea_montador.html") {
+                    // Configura SwipeRefreshLayout
+                    binding.swipeRefreshLayout.isEnabled = false
+                }else{
+                    binding.swipeRefreshLayout.isEnabled = true
+                }
+
                 // Comprobamos si la URL es del dominio 'dosxdos'
                 if (url?.contains("dosxdos.app.iidos.com") == true) {
                     // Si la URL pertenece a dosxdos, la cargamos internamente

@@ -9,6 +9,11 @@ import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import com.dosxdos.dosxdos.app.MainActivity
 import com.dosxdos.dosxdos.app.databinding.ActivitySplashBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -132,22 +137,19 @@ class Splash : AppCompatActivity() {
     }
 
     private fun cacheResources() {
-        val executor = Executors.newFixedThreadPool(4) // Descarga en paralelo
-
-        if (isNetworkAvailable()) {
-            Log.d("Splash", "Internet disponible. Descargando archivos...")
-            urlsToCache.forEach { url ->
-                executor.execute { saveToCache(url) }
+        // Usamos un Coroutine para hacer el trabajo en segundo plano sin bloquear el hilo principal
+        GlobalScope.launch(Dispatchers.IO) {
+            if (isNetworkAvailable()) {
+                Log.d("Splash", "Internet disponible. Descargando archivos...")
+                val tasks = urlsToCache.map { url ->
+                    async { saveToCache(url) } // Descargar cada archivo en paralelo
+                }
+                tasks.awaitAll() // Esperar a que todas las tareas finalicen
+            } else {
+                Log.d("Splash", "Sin conexión. Usando archivos en caché si están disponibles.")
             }
-        } else {
-            Log.d("Splash", "Sin conexión. Usando archivos en caché si están disponibles.")
+            runOnUiThread { inicializarVistaPrincipal() }
         }
-
-        executor.shutdown()
-        while (!executor.isTerminated) {
-            Thread.sleep(200) // Espera que termine la caché
-        }
-        runOnUiThread { inicializarVistaPrincipal() }
     }
 
     private fun saveToCache(urlString: String) {
