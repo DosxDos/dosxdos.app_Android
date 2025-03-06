@@ -213,7 +213,7 @@ class MainActivity : AppCompatActivity() {
         webView.webViewClient = object : WebViewClient() {
 
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                if(url == "https://dosxdos.app.iidos.com/linea_montador.html") {
+                if(url == "https://dosxdos.app.iidos.com/linea_montador.html" || url == "https://dosxdos.app.iidos.com/mapa_ruta.html") {
                     // Configura SwipeRefreshLayout
                     binding.swipeRefreshLayout.isEnabled = false
                 }else{
@@ -296,6 +296,7 @@ class MainActivity : AppCompatActivity() {
                 // Si hay conexión a Internet, permitir la solicitud normal
                 // Actualizar la caché con el nuevo recurso si es necesario
                 val cacheFile = getCachedFile(url)
+
                 overWriteUrl(cacheFile, url)
 
                 return super.shouldInterceptRequest(view, request)
@@ -308,7 +309,7 @@ class MainActivity : AppCompatActivity() {
                 val url = request?.url.toString()
                 val cacheFile = getCachedFile(url)
 
-                if (cacheFile.exists()) {
+                if (cacheFile.exists() && !isNetworkAvailable()) {
                     Log.d("WebView", "Cargando desde caché: ${cacheFile.absolutePath}")
                     view?.loadUrl("file://${cacheFile.absolutePath}")
                 } else {
@@ -599,18 +600,25 @@ class MainActivity : AppCompatActivity() {
             super.onBackPressed()
         }
     }
+    var currentUrl: String? = null
 
-
-
-    // Guardar estado del WebView cuando la actividad se destruye
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        binding.webView.saveState(outState)
+    override fun onResume() {
+        super.onResume()
+        if (currentUrl != null) {
+            binding.webView.loadUrl(currentUrl!!)  // Cargar la URL almacenada al reanudar
+        }
     }
 
-    // Restaurar estado del WebView cuando la actividad se recrea
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        currentUrl = binding.webView.url // Guarda la URL actual
+    }
+
     override fun onRestoreInstanceState(savedInstanceState: Bundle) {
         super.onRestoreInstanceState(savedInstanceState)
-        binding.webView.restoreState(savedInstanceState)
+        // Si ya hemos guardado una URL, no se recargará la página por defecto.
+        if (currentUrl != null) {
+            binding.webView.loadUrl(currentUrl!!)
+        }
     }
 }

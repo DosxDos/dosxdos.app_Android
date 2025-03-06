@@ -53,7 +53,10 @@
         </activity>
         <activity
             android:name=".MainActivity"
-            android:exported="true"></activity> <!-- Declaración del servicio de Firebase Messaging -->
+            android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize"
+            android:screenOrientation="unspecified"
+            android:exported="true">
+        </activity> <!-- Declaración del servicio de Firebase Messaging -->
         <service
             android:name=".Nativo.MyFirebaseMessagingService"
             android:exported="false">
