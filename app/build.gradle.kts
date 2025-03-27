@@ -12,8 +12,8 @@ android {
         applicationId = "com.dosxdos.dosxdos.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.8"
+        versionCode = 13
+        versionName = "2.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

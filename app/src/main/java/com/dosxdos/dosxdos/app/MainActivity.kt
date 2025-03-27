@@ -47,6 +47,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var firebaseTokenManager: Notificaciones
     private var mFilePathCallback: ValueCallback<Array<Uri>>? = null
 
+    // Guardar la instancia del WebView para evitar la recarga innecesaria
+    private lateinit var webViewInstance: WebView
+
     // Crear el BroadcastReceiver para recibir mensajes de Firebase
     private val firebaseReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -122,6 +125,14 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root) // Establece el layout con el binding
 
+        // Usar una instancia persistente del WebView
+        webViewInstance = binding.webView
+
+        // Configurar WebView solo si no está configurado previamente
+        if (savedInstanceState == null) {
+            logica() // Cargar la lógica solo si no se ha re-creado la actividad
+        }
+
         // Registrar el receiver solo si el SDK es Oreo (API 26) o superior
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val filter = IntentFilter("com.dosxdos.dosxdos.FIREBASE_MESSAGE")
@@ -144,7 +155,7 @@ class MainActivity : AppCompatActivity() {
         // Configura SwipeRefreshLayout
         binding.swipeRefreshLayout.setOnRefreshListener {
             // Recargar el WebView
-            binding.webView.reload()
+            webViewInstance.reload()
 
             // Detener la animación de refresco después de recargar
             binding.swipeRefreshLayout.isRefreshing = false
@@ -152,7 +163,7 @@ class MainActivity : AppCompatActivity() {
     }
     // Método para inyectar el mensaje en el WebView usando JavaScript
     private fun injectMessageIntoWebView(message: String?) {
-        val webView = binding.webView
+        val webView = webViewInstance
         val script = """
             javascript:(function() {
                 window.localStorage.setItem('dataNotificacionNativa', '$message');
@@ -180,17 +191,16 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun logica(url: String = "https://dosxdos.app.iidos.com/") {
-        val webView = binding.webView
-        val webSettings = webView.settings
+        val webSettings = webViewInstance.settings
 
-        webView.addJavascriptInterface(this, "Android")
+        webViewInstance.addJavascriptInterface(this, "Android")
 
         // 🔹 Habilitar JavaScript y almacenamiento local
         webSettings.javaScriptEnabled = true
         webSettings.domStorageEnabled = true
         webSettings.databaseEnabled = true
 
-        webView.settings.domStorageEnabled = true
+        webViewInstance.settings.domStorageEnabled = true
         webSettings.cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK // Usa caché si no hay internet
 
         // 🔹 Habilitar acceso a archivos y contenido local
@@ -207,16 +217,17 @@ class MainActivity : AppCompatActivity() {
         webSettings.mediaPlaybackRequiresUserGesture = false
 
         // 🔹 Habilitar depuración de WebView
-        WebView.setWebContentsDebuggingEnabled(true)
+        //webViewInstance.setWebContentsDebuggingEnabled(true)
 
         // 🔹 Interceptar solicitudes y gestionar caché
-        webView.webViewClient = object : WebViewClient() {
+        webViewInstance.webViewClient = object : WebViewClient() {
 
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                if(url == "https://dosxdos.app.iidos.com/linea_montador.html" || url == "https://dosxdos.app.iidos.com/mapa_ruta.html") {
-                    // Configura SwipeRefreshLayout
+                // Si la URL es 'linea_montador.html' o 'mapa_ruta.html', no permitimos que el WebView recargue
+                if (url == "https://dosxdos.app.iidos.com/linea_montador.html" || url == "https://dosxdos.app.iidos.com/mapa_ruta.html") {
+                    // Deshabilitar SwipeRefreshLayout para evitar recargas no deseadas
                     binding.swipeRefreshLayout.isEnabled = false
-                }else{
+                } else {
                     binding.swipeRefreshLayout.isEnabled = true
                 }
 
@@ -231,7 +242,7 @@ class MainActivity : AppCompatActivity() {
                         return true  // No cargamos la URL en el WebView
                     }
 
-                    // Aquí puedes agregar un código para abrir un navegador o continuar la carga de la URL de Google
+                    // Si la URL es externa, abrirla en un navegador
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                     startActivity(intent)
                     return true
@@ -239,27 +250,26 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                // Inyectar un script de JavaScript en el WebView que escuche los clics en el campo input[type="file"]
-                // Inyectar el script de JavaScript para escuchar el clic en el campo input[type="file"]
-                injectFileInputHandler(view)
-
-                injectFilesFunction(view)
+                // Solo inyectamos scripts si la página es 'linea_montador.html'
+                if (url == "https://dosxdos.app.iidos.com/linea_montador.html") {
+                    injectFileInputHandler(view)
+                    injectFilesFunction(view)
+                }
 
                 firebaseTokenManager = Notificaciones(this@MainActivity)
 
                 // Obtener el token de manera asincrónica
                 firebaseTokenManager.getStoredToken { token ->
-                    // Comprobamos si el token no es nulo ni vacío
                     if (!token.isNullOrEmpty()) {
+                        // Inyectar token solo en la página principal
                         if (url == "https://dosxdos.app.iidos.com/index.html") {
-                            // Ejecutar el script para almacenar el token en el localStorage
                             val script = """
                         javascript:(function() {
                             window.localStorage.setItem('tokenNativo', '$token');
-                            console.log('Token inyectado correctamente en localStorage $token');
+                            console.log('Token inyectado correctamente en localStorage');
                             asignarTokenNativo()                        
-                        })()"""
-                            // Cargar el script en el WebView
+                        })()
+                    """
                             view?.loadUrl(script)
                         } else {
                             Log.d("WebView", "El token no se inyecta si no está en la página principal")
@@ -273,35 +283,29 @@ class MainActivity : AppCompatActivity() {
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                 val url = request?.url.toString()
 
-                // Verificar si la URL pertenece al dominio de dosxdos
+                // Verificar si la URL pertenece al dominio 'dosxdos'
                 if (url.contains("dosxdos.app.iidos.com")) {
-                    // Si es del dominio de dosxdos, proceder con la carga normal
                     return super.shouldInterceptRequest(view, request)
                 }
 
-                // Si la URL pertenece a un dominio externo (como Google o anuncios), manejarla según la conexión
+                // Si la URL pertenece a un dominio externo y no hay conexión a internet, buscarla en la caché
                 if (!isNetworkAvailable()) {
-                    // Si no hay conexión y el archivo está en caché, cargarlo desde la caché
                     val cacheFile = getCachedFile(url)
                     if (cacheFile.exists()) {
                         Log.d("WebView", "Cargando desde caché: ${cacheFile.absolutePath}")
                         return getCachedWebResource(cacheFile, url)
                     } else {
-                        // Si no hay archivo en caché, no cargar nada y mostrar un mensaje de error
                         Log.d("WebView", "No hay conexión y no hay archivo en caché para $url")
-                        return null  // No cargar nada en el WebView
+                        return null  // No cargamos nada en el WebView
                     }
                 }
 
-                // Si hay conexión a Internet, permitir la solicitud normal
-                // Actualizar la caché con el nuevo recurso si es necesario
+                // Si hay conexión a Internet, proceder con la solicitud normal
                 val cacheFile = getCachedFile(url)
-
                 overWriteUrl(cacheFile, url)
 
                 return super.shouldInterceptRequest(view, request)
             }
-
 
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                 super.onReceivedError(view, request, error)
@@ -317,8 +321,9 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        // Configurar WebChromeClient para manejar la selección de archivos
-        webView.webChromeClient = object : WebChromeClient() {
+
+// Configurar WebChromeClient para manejar la selección de archivos
+        webViewInstance.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(
                 view: WebView?,
                 filePathCallback: ValueCallback<Array<Uri>>?,
@@ -340,8 +345,10 @@ class MainActivity : AppCompatActivity() {
                 return true
             }
         }
-        // 🔹 Cargar la URL principal
-        webView.loadUrl(url)
+
+    // Cargar la URL principal
+        webViewInstance.loadUrl(url)
+
     }
 
     private fun injectFileInputHandler(webView: WebView?) {
@@ -431,46 +438,81 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Función para inyectar los archivos sin recargar la página
+    // Dentro del WebView donde inyectas la imagen
     private fun injectFilesFunction(view: WebView?) {
         val jsCode = """
-        function injectFilesToInput(files) {
-            var input = document.querySelector('input[type="file"]');
-            if (input) {
-                var dataTransfer = new DataTransfer();
+    // Inyectar la imagen
+    function injectFilesToInput(files) {
+        console.log("📥 Iniciando inyección de archivos", files);
 
-                files.forEach(function(file) {
-                    var fileName = file.name;
-                    var fileType = file.type;
-
-                    var byteCharacters = atob(file.base64Data); // Decodificar el Base64
-                    var byteArrays = [];
-
-                    for (var offset = 0; offset < byteCharacters.length; offset += 512) {
-                        var slice = byteCharacters.slice(offset, offset + 512);
-                        var byteNumbers = new Array(slice.length);
-                        for (var i = 0; i < slice.length; i++) {
-                            byteNumbers[i] = slice.charCodeAt(i);
-                        }
-                        byteArrays.push(new Uint8Array(byteNumbers));
-                    }
-
-                    var blob = new Blob(byteArrays, { type: fileType });
-                    var newFile = new File([blob], fileName, { type: fileType });
-
-                    dataTransfer.items.add(newFile);
-                });
-
-                input.files = dataTransfer.files;
-
-                var event = new Event('change');
-                input.dispatchEvent(event);
-
-                console.log('Archivos inyectados correctamente y evento "change" disparado');
-            }
+        var input = document.querySelector('input[type="file"]');
+        if (!input) {
+            console.warn("⚠️ No se encontró input[type='file']");
+            return;
         }
+
+        var dataTransfer = new DataTransfer();
+
+        files.forEach(function(file, index) {
+            console.log("📁 Procesando archivo[" + index + "]:", file.name, file.type);
+
+            if (!file.base64Data || file.base64Data.trim() === "") {
+                console.error("❌ base64Data vacío o inválido para:", file.name);
+                return;
+            }
+
+            try {
+                var byteCharacters = atob(file.base64Data);
+                var byteArrays = [];
+
+                for (var offset = 0; offset < byteCharacters.length; offset += 512) {
+                    var slice = byteCharacters.slice(offset, offset + 512);
+                    var byteNumbers = new Array(slice.length);
+                    for (var i = 0; i < slice.length; i++) {
+                        byteNumbers[i] = slice.charCodeAt(i);
+                    }
+                    byteArrays.push(new Uint8Array(byteNumbers));
+                }
+
+                var blob = new Blob(byteArrays, { type: file.type });
+                var newFile = new File([blob], file.name, { type: file.type });
+
+                console.log("✅ Archivo convertido a File:", newFile);
+                dataTransfer.items.add(newFile);
+
+            } catch (err) {
+                console.error("❌ Error al convertir archivo a File:", err);
+            }
+        });
+
+        input.files = dataTransfer.files;
+
+        try {
+            var event;
+            try {
+                event = new Event('change', { bubbles: true, cancelable: true });
+            } catch (e) {
+                event = document.createEvent('Event');
+                event.initEvent('change', true, true);
+            }
+
+            input.dispatchEvent(event);
+            console.log("📤 Evento 'change' disparado con archivos:", input.files.length);
+
+            // Aquí inyectamos la variable solo después de la inyección de archivos
+            localStorage.setItem('noResetForm', 'true');
+            console.log('🛡️ noResetForm activado');
+        } catch (err) {
+            console.error("❌ Error al disparar el evento 'change':", err);
+        }
+    }
     """
         view?.evaluateJavascript(jsCode, null)
     }
+
+
+
 
 
     private fun passFilesToWebView(files: Array<Uri>?) {
@@ -484,7 +526,7 @@ class MainActivity : AppCompatActivity() {
         val jsonFiles = Gson().toJson(fileObjects)
 
         // Llamar a la función JavaScript con los archivos seleccionados
-        binding.webView.evaluateJavascript("""
+        webViewInstance .evaluateJavascript("""
         injectFilesToInput($jsonFiles);
     """, null)
     }
@@ -589,7 +631,7 @@ class MainActivity : AppCompatActivity() {
         mFilePathCallback?.onReceiveValue(null)
         mFilePathCallback = null
 
-        val webView = binding.webView
+        val webView = webViewInstance
 
         // Si el WebView puede ir atrás en el historial
         if (webView.canGoBack()) {
@@ -605,20 +647,21 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (currentUrl != null) {
-            binding.webView.loadUrl(currentUrl!!)  // Cargar la URL almacenada al reanudar
+            //Si activamos esto entonces al cargar la imagen se actualiza la página
+            //webViewInstance.loadUrl(currentUrl!!)  // Cargar la URL almacenada al reanudar
         }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        currentUrl = binding.webView.url // Guarda la URL actual
+        currentUrl = webViewInstance.url // Guarda la URL actual
     }
 
     override fun onRestoreInstanceState(savedInstanceState: Bundle) {
         super.onRestoreInstanceState(savedInstanceState)
         // Si ya hemos guardado una URL, no se recargará la página por defecto.
         if (currentUrl != null) {
-            binding.webView.loadUrl(currentUrl!!)
+            webViewInstance.loadUrl(currentUrl!!)
         }
     }
 }
