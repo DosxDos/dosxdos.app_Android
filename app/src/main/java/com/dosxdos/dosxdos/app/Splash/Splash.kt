@@ -25,6 +25,9 @@ class Splash : AppCompatActivity() {
 
     private lateinit var binding: ActivitySplashBinding // Binding para la UI
     private val urlsToCache = listOf(
+        "https://dosxdos.app.iidos.com/notificaciones.html",
+        "https://dosxdos.app.iidos.com/css/index.css",
+        "https://dosxdos.app.iidos.com/js/navigation.js",
         "https://dosxdos.app.iidos.com/index.html?utm_source=web_app_manifest",
         "https://dosxdos.app.iidos.com/index.html",
         "https://dosxdos.app.iidos.com/manifest.json",
@@ -95,7 +98,6 @@ class Splash : AppCompatActivity() {
         "https://dosxdos.app.iidos.com/pv.html",
         "https://dosxdos.app.iidos.com/crear_pv.html",
         "https://dosxdos.app.iidos.com/editar_pv.html",
-        "https://dosxdos.app.iidos.com/editar_pv.html",
         "https://dosxdos.app.iidos.com/js/fixed_header.js",
         "https://dosxdos.app.iidos.com/css/fuentes/Futura/Futura_Bold.otf",
         "https://dosxdos.app.iidos.com/css/fuentes/Futura/Futura_Light.otf",
@@ -119,12 +121,14 @@ class Splash : AppCompatActivity() {
         "https://dosxdos.app.iidos.com/img/historial.png",
         "https://dosxdos.app.iidos.com/css/tailwindmain.css",
         "https://dosxdos.app.iidos.com/img/dosxdoslogoNuevoRojo.png",
-        "https://dosxdos.app.iidos.com/js/utils/notificaciones.js",
-        "https://dosxdos.app.iidos.com/js/utils/notificaciones2.js",
-        "https://dosxdos.app.iidos.com/js/utils/loadFirebase.js",
+        "https://dosxdos.app.iidos.com/js/notificaciones.js",
+        "https://dosxdos.app.iidos.com/js/loadFirebase.js",
         "https://dosxdos.app.iidos.com/img/bell.gif",
         "https://dosxdos.app.iidos.com/img/bell2.png",
-        "https://dosxdos.app.iidos.com/img/Isotipo-38.png"
+        "https://dosxdos.app.iidos.com/img/Isotipo-38.png",
+        "https://dosxdos.app.iidos.com/img/texture-red.svg",
+        "https://dosxdos.app.iidos.com/img/texture-white.svg",
+        "https://dosxdos.app.iidos.com/gsap.min.js"
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {

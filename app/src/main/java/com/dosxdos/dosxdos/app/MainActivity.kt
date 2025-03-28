@@ -46,6 +46,12 @@ class MainActivity : AppCompatActivity() {
     private val FILE_CHOOSER_REQUEST_CODE = 1002
     private lateinit var firebaseTokenManager: Notificaciones
     private var mFilePathCallback: ValueCallback<Array<Uri>>? = null
+    private val RUTAS_SIN_SWIPE = setOf(
+        "https://dosxdos.app.iidos.com/linea_montador.html",
+        "https://dosxdos.app.iidos.com/mapa_ruta.html",
+        "https://dosxdos.app.iidos.com/mapa_ruta_historial.html"
+    )
+
 
     // Guardar la instancia del WebView para evitar la recarga innecesaria
     private lateinit var webViewInstance: WebView
@@ -224,7 +230,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
                 // Si la URL es 'linea_montador.html' o 'mapa_ruta.html', no permitimos que el WebView recargue
-                if (url == "https://dosxdos.app.iidos.com/linea_montador.html" || url == "https://dosxdos.app.iidos.com/mapa_ruta.html") {
+                if (url != null && RUTAS_SIN_SWIPE.contains(url)) {
                     // Deshabilitar SwipeRefreshLayout para evitar recargas no deseadas
                     binding.swipeRefreshLayout.isEnabled = false
                 } else {
@@ -283,28 +289,25 @@ class MainActivity : AppCompatActivity() {
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                 val url = request?.url.toString()
 
-                // Verificar si la URL pertenece al dominio 'dosxdos'
-                if (url.contains("dosxdos.app.iidos.com")) {
-                    return super.shouldInterceptRequest(view, request)
-                }
+                val cacheFile = getCachedFile(url)
 
-                // Si la URL pertenece a un dominio externo y no hay conexión a internet, buscarla en la caché
                 if (!isNetworkAvailable()) {
-                    val cacheFile = getCachedFile(url)
+                    // Sin conexión: intentar cargar desde caché
                     if (cacheFile.exists()) {
-                        Log.d("WebView", "Cargando desde caché: ${cacheFile.absolutePath}")
+                        Log.d("WebView", "📁 Cargando sin conexión desde caché: ${cacheFile.absolutePath}")
                         return getCachedWebResource(cacheFile, url)
                     } else {
-                        Log.d("WebView", "No hay conexión y no hay archivo en caché para $url")
-                        return null  // No cargamos nada en el WebView
+                        Log.w("WebView", "⚠️ Sin conexión y archivo no encontrado en caché: $url")
+                        return null
                     }
+                } else {
+                    // Con conexión: dejar que WebView maneje la petición, pero guardar una copia en segundo plano
+                    Thread {
+                        overWriteUrl(cacheFile, url)
+                    }.start()
+
+                    return super.shouldInterceptRequest(view, request)
                 }
-
-                // Si hay conexión a Internet, proceder con la solicitud normal
-                val cacheFile = getCachedFile(url)
-                overWriteUrl(cacheFile, url)
-
-                return super.shouldInterceptRequest(view, request)
             }
 
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
@@ -577,8 +580,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun getCachedFile(url: String): File {
         val uri = Uri.parse(url)
-        val fileName = uri.lastPathSegment ?: "index.html" // Si no hay nombre, usa index.html
-        return File(filesDir, fileName) // 📌 Se usa `filesDir` en lugar de `cacheDir`
+        val fileName = uri.lastPathSegment ?: "index.html"
+        val file = File(filesDir, fileName)
+
+        Log.d("WebView", "🗂️ getCachedFile: URL=$url → Archivo esperado=$fileName")
+        Log.d("WebView", "📂 Ruta completa esperada: ${file.absolutePath}")
+        Log.d("WebView", "📦 ¿Existe el archivo?: ${file.exists()}")
+
+        return file
     }
 
 
