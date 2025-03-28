@@ -18,12 +18,16 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.concurrent.Executors
 
+import com.google.android.play.core.appupdate.AppUpdateManagerFactory
+import com.google.android.play.core.install.model.AppUpdateType
+import com.google.android.play.core.install.model.UpdateAvailability
 
 class Splash : AppCompatActivity() {
 
     private lateinit var binding: ActivitySplashBinding // Binding para la UI
+    private val UPDATE_REQUEST_CODE = 1001
+
     private val urlsToCache = listOf(
         "https://dosxdos.app.iidos.com/notificaciones.html",
         "https://dosxdos.app.iidos.com/css/index.css",
@@ -136,23 +140,41 @@ class Splash : AppCompatActivity() {
         binding = ActivitySplashBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Inicia la carga de caché y luego pasa a la siguiente actividad
         cacheResources()
     }
 
     private fun cacheResources() {
-        // Usamos un Coroutine para hacer el trabajo en segundo plano sin bloquear el hilo principal
         GlobalScope.launch(Dispatchers.IO) {
             if (isNetworkAvailable()) {
                 Log.d("Splash", "Internet disponible. Descargando archivos...")
-                val tasks = urlsToCache.map { url ->
-                    async { saveToCache(url) } // Descargar cada archivo en paralelo
-                }
-                tasks.awaitAll() // Esperar a que todas las tareas finalicen
+                val tasks = urlsToCache.map { url -> async { saveToCache(url) } }
+                tasks.awaitAll()
             } else {
                 Log.d("Splash", "Sin conexión. Usando archivos en caché si están disponibles.")
             }
-            runOnUiThread { inicializarVistaPrincipal() }
+            runOnUiThread { checkForAppUpdate() }
+        }
+    }
+
+    private fun checkForAppUpdate() {
+        val appUpdateManager = AppUpdateManagerFactory.create(this)
+        val appUpdateInfoTask = appUpdateManager.appUpdateInfo
+
+        appUpdateInfoTask.addOnSuccessListener { appUpdateInfo ->
+            if (appUpdateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
+                appUpdateInfo.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)
+            ) {
+                appUpdateManager.startUpdateFlowForResult(
+                    appUpdateInfo,
+                    AppUpdateType.IMMEDIATE,
+                    this,
+                    UPDATE_REQUEST_CODE
+                )
+            } else {
+                inicializarVistaPrincipal()
+            }
+        }.addOnFailureListener {
+            inicializarVistaPrincipal()
         }
     }
 
@@ -160,9 +182,7 @@ class Splash : AppCompatActivity() {
         try {
             val uri = Uri.parse(urlString)
             val fileName = uri.lastPathSegment ?: return
-            val cacheFile = File(filesDir, fileName) // 📌 Usa filesDir en lugar de cacheDir
-
-            // Si el archivo ya existe, lo borro para volver a cachearlo
+            val cacheFile = File(filesDir, fileName)
 
             if (cacheFile.exists()) {
                 cacheFile.delete()
@@ -177,11 +197,9 @@ class Splash : AppCompatActivity() {
             if (connection.responseCode == HttpURLConnection.HTTP_OK) {
                 val inputStream = connection.inputStream
                 val outputStream = FileOutputStream(cacheFile)
-
                 inputStream.copyTo(outputStream)
                 inputStream.close()
                 outputStream.close()
-
                 Log.d("Splash", "Archivo guardado en caché: $fileName")
             } else {
                 Log.e("Splash", "Error al descargar archivo: ${connection.responseCode}")
@@ -201,6 +219,6 @@ class Splash : AppCompatActivity() {
     private fun inicializarVistaPrincipal() {
         val intent = Intent(this, MainActivity::class.java)
         startActivity(intent)
-        finish() // Cierra el splash después de iniciar MainActivity
+        finish()
     }
 }

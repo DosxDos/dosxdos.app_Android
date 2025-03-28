@@ -12,8 +12,8 @@ android {
         applicationId = "com.dosxdos.dosxdos.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 14
-        versionName = "2.3"
+        versionCode = 17
+        versionName = "2.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -41,6 +41,7 @@ android {
 
 dependencies {
 
+    implementation(libs.app.update)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)

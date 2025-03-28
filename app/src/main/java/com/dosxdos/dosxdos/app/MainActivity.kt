@@ -1,175 +1,84 @@
 package com.dosxdos.dosxdos.app
 
-import android.Manifest
-import android.annotation.SuppressLint
-import android.content.ActivityNotFoundException
-import android.content.BroadcastReceiver
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.util.Base64
-import android.util.Log
-import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceError
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.dosxdos.dosxdos.app.Activities.ErrorPermisos
-import com.dosxdos.dosxdos.app.Clases.FileData
 import com.dosxdos.dosxdos.app.Nativo.Notificaciones
 import com.dosxdos.dosxdos.app.databinding.ActivityMainBinding
 import com.google.gson.Gson
-import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
-
+import com.dosxdos.dosxdos.app.notifications.NotificationReceiver
+import com.dosxdos.dosxdos.app.permissions.PermissionHelper
+import com.dosxdos.dosxdos.app.webview.FileChooserHelper
+import com.dosxdos.dosxdos.app.webview.WebViewHelper
+import android.app.Activity
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var binding: ActivityMainBinding // Clase de binding generada automáticamente
+    private lateinit var binding: ActivityMainBinding
     private val FILE_CHOOSER_REQUEST_CODE = 1002
     private lateinit var firebaseTokenManager: Notificaciones
     private var mFilePathCallback: ValueCallback<Array<Uri>>? = null
-    private val RUTAS_SIN_SWIPE = setOf(
-        "https://dosxdos.app.iidos.com/linea_montador.html",
-        "https://dosxdos.app.iidos.com/mapa_ruta.html",
-        "https://dosxdos.app.iidos.com/mapa_ruta_historial.html"
-    )
+    private lateinit var notificationReceiver: NotificationReceiver
 
-
-    // Guardar la instancia del WebView para evitar la recarga innecesaria
-    private lateinit var webViewInstance: WebView
-
-    // Crear el BroadcastReceiver para recibir mensajes de Firebase
-    private val firebaseReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            // Obtener el mensaje de los datos extraídos del Intent
-            val jsonMessage = intent?.getStringExtra("firebaseMessage")
-            Log.d("WebView", "Mensaje recibido en MainActivity: $jsonMessage")
-            injectMessageIntoWebView(jsonMessage)
-        }
-    }
-
-    // Definir los permisos requeridos de acuerdo a la versión de Android
-    private val REQUIRED_PERMISSIONS = getRequiredPermissions()
-
-    // Función que devuelve los permisos requeridos según la versión de Android
-    private fun getRequiredPermissions(): Array<String> {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Android 11 (API 30) y superior
-            arrayOf(
-                Manifest.permission.CAMERA,
-                Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.POST_NOTIFICATIONS,
-            )
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // Android 10 (API 29) - Scoped Storage, pero con permisos para leer/escribir archivos específicos
-            arrayOf(
-                Manifest.permission.CAMERA,
-                Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.POST_NOTIFICATIONS,
-                Manifest.permission.READ_EXTERNAL_STORAGE, // Permiso para leer archivos específicos
-                Manifest.permission.WRITE_EXTERNAL_STORAGE // Permiso para escribir archivos específicos
-            )
-        } else {
-            // Para versiones inferiores a Android 10, permisos tradicionales de almacenamiento
-            arrayOf(
-                Manifest.permission.CAMERA,
-                Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.POST_NOTIFICATIONS,
-                Manifest.permission.READ_EXTERNAL_STORAGE,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
-            )
-        }
-    }
-
+    private val REQUIRED_PERMISSIONS = PermissionHelper.getRequiredPermissions()
 
     private val requestPermissionsLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
             val deniedPermissions = permissions.filterValues { !it }.keys
             if (deniedPermissions.isNotEmpty()) {
-
                 Toast.makeText(this, "Permisos denegados: $deniedPermissions", Toast.LENGTH_LONG).show()
                 val intent = Intent(this, ErrorPermisos::class.java)
                 startActivity(intent)
-                finish() // Finaliza la actividad actual
+                finish()
             } else {
-                // Ahora, carga el WebView y realiza otras configuraciones
-                logica() // 🔹 Solo ahora que los permisos fueron concedidos
-
+                initWebView()
             }
         }
 
-
-    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Inicializa el binding
         binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root) // Establece el layout con el binding
+        setContentView(binding.root)
 
-        // Usar una instancia persistente del WebView
-        webViewInstance = binding.webView
-
-        // Configurar WebView solo si no está configurado previamente
-        if (savedInstanceState == null) {
-            logica() // Cargar la lógica solo si no se ha re-creado la actividad
-        }
-
-        // Registrar el receiver solo si el SDK es Oreo (API 26) o superior
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val filter = IntentFilter("com.dosxdos.dosxdos.FIREBASE_MESSAGE")
-            registerReceiver(firebaseReceiver, filter, Context.RECEIVER_EXPORTED)
+            notificationReceiver = NotificationReceiver { message ->
+                injectMessageIntoWebView(message)
+            }
+            val filter = android.content.IntentFilter("com.dosxdos.dosxdos.FIREBASE_MESSAGE")
+            registerReceiver(notificationReceiver, filter, RECEIVER_EXPORTED)
         }
 
-
-
-        requestPermissions() // 🔹 Solicitar permisos al iniciar la app
         val url = intent.getStringExtra("url")
-        // Verificar si los permisos ya están concedidos y ejecutar la lógica
-        if (arePermissionsGranted() && url == null) {
-            logica() // Ejecuta la lógica si los permisos ya están concedidos
-        }
-        // Verifica si hay una URL pasada a través del Intent
-        if (url != null) {
-            // Cargar la URL en el WebView
-            logica(url)
-        }
-        // Configura SwipeRefreshLayout
-        binding.swipeRefreshLayout.setOnRefreshListener {
-            // Recargar el WebView
-            webViewInstance.reload()
 
-            // Detener la animación de refresco después de recargar
+        binding.swipeRefreshLayout.setOnRefreshListener {
+            binding.webView.reload()
             binding.swipeRefreshLayout.isRefreshing = false
         }
+
+        requestPermissions()
+        if (PermissionHelper.arePermissionsGranted(this, REQUIRED_PERMISSIONS)) {
+            initWebView(url ?: "https://dosxdos.app.iidos.com/")
+        }
     }
-    // Método para inyectar el mensaje en el WebView usando JavaScript
+
+    private fun requestPermissions() {
+        val missingPermissions = REQUIRED_PERMISSIONS.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missingPermissions.isNotEmpty()) {
+            requestPermissionsLauncher.launch(missingPermissions.toTypedArray())
+        }
+    }
+
     private fun injectMessageIntoWebView(message: String?) {
-        val webView = webViewInstance
         val script = """
             javascript:(function() {
                 window.localStorage.setItem('dataNotificacionNativa', '$message');
@@ -177,500 +86,88 @@ class MainActivity : AppCompatActivity() {
                 notificarWebApp()
             })()
         """
-        webView.evaluateJavascript(script) { result ->
-            Log.d("WebView", "Resultado del script: $result")
+        binding.webView.evaluateJavascript(script) { result ->
+            android.util.Log.d("WebView", "Resultado del script: $result")
+        }
+    }
+
+    private fun initWebView(url: String = "https://dosxdos.app.iidos.com/") {
+        WebViewHelper.configureWebView(
+            context = this,
+            webView = binding.webView,
+            swipeRefreshEnabled = { isEnabled -> binding.swipeRefreshLayout.isEnabled = isEnabled },
+            onTokenReady = { tokenPageUrl ->
+                firebaseTokenManager = Notificaciones(this)
+                firebaseTokenManager.getStoredToken { token ->
+                    if (!token.isNullOrEmpty() && tokenPageUrl == "https://dosxdos.app.iidos.com/index.html") {
+                        val script = """
+                            javascript:(function() {
+                                window.localStorage.setItem('tokenNativo', '$token');
+                                console.log('✅ Token inyectado desde Android');
+                                asignarTokenNativo()
+                            })()
+                        """
+                        binding.webView.loadUrl(script)
+                    }
+                }
+            },
+            onInjectJS = { view, currentUrl ->
+                if (currentUrl == "https://dosxdos.app.iidos.com/linea_montador.html") {
+                    WebViewHelper.injectFileInputHandler(view)
+                    WebViewHelper.injectFilesFunction(view)
+                }
+            },
+            onOfflineFallback = { view, path -> view?.loadUrl("file://$path") },
+            openFileChooserCallback = { openFileChooser() },
+            onFileChooserIntent = { callback, intent ->
+                mFilePathCallback = callback
+                startActivityForResult(intent, FILE_CHOOSER_REQUEST_CODE)
+            }
+        )
+        binding.webView.loadUrl(url)
+    }
+
+    private fun openFileChooser() {
+        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "*/*"
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        }
+        try {
+            startActivityForResult(intent, FILE_CHOOSER_REQUEST_CODE)
+        } catch (e: Exception) {
+            mFilePathCallback?.onReceiveValue(null)
+            mFilePathCallback = null
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == FILE_CHOOSER_REQUEST_CODE && resultCode == Activity.RESULT_OK) {
+            val results = FileChooserHelper.getResultUri(data)
+            if (results != null) {
+                val fileObjects = FileChooserHelper.convertUrisToFileData(contentResolver, results)
+                val jsonFiles = Gson().toJson(fileObjects)
+                binding.webView.evaluateJavascript("injectFilesToInput($jsonFiles);", null)
+            } else {
+                mFilePathCallback?.onReceiveValue(null)
+            }
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        // Desregistrar el BroadcastReceiver al destruir la actividad
-        unregisterReceiver(firebaseReceiver)
+        if (::notificationReceiver.isInitialized) unregisterReceiver(notificationReceiver)
     }
-
-    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-    private fun arePermissionsGranted() : Boolean {
-        return REQUIRED_PERMISSIONS.all {
-            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
-        }
-    }
-
-
-    private fun logica(url: String = "https://dosxdos.app.iidos.com/") {
-        val webSettings = webViewInstance.settings
-
-        webViewInstance.addJavascriptInterface(this, "Android")
-
-        // 🔹 Habilitar JavaScript y almacenamiento local
-        webSettings.javaScriptEnabled = true
-        webSettings.domStorageEnabled = true
-        webSettings.databaseEnabled = true
-
-        webViewInstance.settings.domStorageEnabled = true
-        webSettings.cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK // Usa caché si no hay internet
-
-        // 🔹 Habilitar acceso a archivos y contenido local
-        webSettings.allowContentAccess = true
-        webSettings.allowFileAccess = true
-        webSettings.allowFileAccessFromFileURLs = true
-        webSettings.allowUniversalAccessFromFileURLs = true
-
-        // 🔹 Habilitar geolocalización
-        webSettings.setGeolocationEnabled(true)
-
-        // 🔹 Configurar almacenamiento de caché para imágenes
-        webSettings.loadsImagesAutomatically = true
-        webSettings.mediaPlaybackRequiresUserGesture = false
-
-        // 🔹 Habilitar depuración de WebView
-        //webViewInstance.setWebContentsDebuggingEnabled(true)
-
-        // 🔹 Interceptar solicitudes y gestionar caché
-        webViewInstance.webViewClient = object : WebViewClient() {
-
-            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                // Si la URL es 'linea_montador.html' o 'mapa_ruta.html', no permitimos que el WebView recargue
-                if (url != null && RUTAS_SIN_SWIPE.contains(url)) {
-                    // Deshabilitar SwipeRefreshLayout para evitar recargas no deseadas
-                    binding.swipeRefreshLayout.isEnabled = false
-                } else {
-                    binding.swipeRefreshLayout.isEnabled = true
-                }
-
-                // Comprobamos si la URL es del dominio 'dosxdos'
-                if (url?.contains("dosxdos.app.iidos.com") == true) {
-                    // Si la URL pertenece a dosxdos, la cargamos internamente
-                    return super.shouldOverrideUrlLoading(view, url)
-                } else {
-                    // Si la URL pertenece a un dominio externo, la redirigimos al navegador o la cargamos desde la red
-                    if (!isNetworkAvailable()) {
-                        Toast.makeText(this@MainActivity, "Sin conexión a Internet", Toast.LENGTH_SHORT).show()
-                        return true  // No cargamos la URL en el WebView
-                    }
-
-                    // Si la URL es externa, abrirla en un navegador
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                    startActivity(intent)
-                    return true
-                }
-            }
-
-            override fun onPageFinished(view: WebView?, url: String?) {
-                // Solo inyectamos scripts si la página es 'linea_montador.html'
-                if (url == "https://dosxdos.app.iidos.com/linea_montador.html") {
-                    injectFileInputHandler(view)
-                    injectFilesFunction(view)
-                }
-
-                firebaseTokenManager = Notificaciones(this@MainActivity)
-
-                // Obtener el token de manera asincrónica
-                firebaseTokenManager.getStoredToken { token ->
-                    if (!token.isNullOrEmpty()) {
-                        // Inyectar token solo en la página principal
-                        if (url == "https://dosxdos.app.iidos.com/index.html") {
-                            val script = """
-                        javascript:(function() {
-                            window.localStorage.setItem('tokenNativo', '$token');
-                            console.log('Token inyectado correctamente en localStorage');
-                            asignarTokenNativo()                        
-                        })()
-                    """
-                            view?.loadUrl(script)
-                        } else {
-                            Log.d("WebView", "El token no se inyecta si no está en la página principal")
-                        }
-                    } else {
-                        Log.d("WebView", "Token vacío, no se inyecta.")
-                    }
-                }
-            }
-
-            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                val url = request?.url.toString()
-
-                val cacheFile = getCachedFile(url)
-
-                if (!isNetworkAvailable()) {
-                    // Sin conexión: intentar cargar desde caché
-                    if (cacheFile.exists()) {
-                        Log.d("WebView", "📁 Cargando sin conexión desde caché: ${cacheFile.absolutePath}")
-                        return getCachedWebResource(cacheFile, url)
-                    } else {
-                        Log.w("WebView", "⚠️ Sin conexión y archivo no encontrado en caché: $url")
-                        return null
-                    }
-                } else {
-                    // Con conexión: dejar que WebView maneje la petición, pero guardar una copia en segundo plano
-                    Thread {
-                        overWriteUrl(cacheFile, url)
-                    }.start()
-
-                    return super.shouldInterceptRequest(view, request)
-                }
-            }
-
-            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-                super.onReceivedError(view, request, error)
-
-                val url = request?.url.toString()
-                val cacheFile = getCachedFile(url)
-
-                if (cacheFile.exists() && !isNetworkAvailable()) {
-                    Log.d("WebView", "Cargando desde caché: ${cacheFile.absolutePath}")
-                    view?.loadUrl("file://${cacheFile.absolutePath}")
-                } else {
-                    Log.e("WebView", "Archivo no encontrado en caché. No se puede cargar sin conexión.")
-                }
-            }
-        }
-
-// Configurar WebChromeClient para manejar la selección de archivos
-        webViewInstance.webChromeClient = object : WebChromeClient() {
-            override fun onShowFileChooser(
-                view: WebView?,
-                filePathCallback: ValueCallback<Array<Uri>>?,
-                fileChooserParams: FileChooserParams?
-            ): Boolean {
-                mFilePathCallback = filePathCallback
-                val intent = fileChooserParams?.createIntent()
-                intent?.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true) // Permitir selección múltiple de archivos
-
-                try {
-                    if (intent != null) {
-                        startActivityForResult(intent, FILE_CHOOSER_REQUEST_CODE)
-                    }
-                } catch (e: ActivityNotFoundException) {
-                    mFilePathCallback?.onReceiveValue(null)
-                    mFilePathCallback = null
-                    return false
-                }
-                return true
-            }
-        }
-
-    // Cargar la URL principal
-        webViewInstance.loadUrl(url)
-
-    }
-
-    private fun injectFileInputHandler(webView: WebView?) {
-        webView?.evaluateJavascript("""
-        (function() {
-            var input = document.querySelector('input[type="file"]');
-            if (input) {
-                input.addEventListener('click', function(event) {
-                    event.preventDefault();  // Evitar la acción predeterminada
-                    event.stopPropagation();  // Evitar la propagación del evento
-                    
-                    // Verificar si ya hemos llamado al método
-                    if (!input.hasAttribute('data-clicked')) {
-                        input.setAttribute('data-clicked', 'true');  // Marcar el input como "ya clickeado"
-                        Android.openFileChooser();  // Llamar a la función de la interfaz nativa
-                        console.log('Script inyectado correctamente');
-
-                        // Esperar 1 segundo antes de restablecer el atributo
-                        setTimeout(function() {
-                            input.removeAttribute('data-clicked');  // Restablecer el atributo después de 1 segundo
-                            console.log('data-clicked restablecido después de 1 segundo');
-                        }, 1000);
-                    }
-                });
-            } else {
-                console.log('No se encontró input[type="file"]');
-            }
-        })();
-    """, { result ->
-            Log.d("WebView", "Script inyectado, resultado: $result")
-        })
-    }
-
-
-
-
-    @JavascriptInterface
-    fun openFileChooser() {
-        Log.d("WebView", "openFileChooser llamada desde JavaScript")
-
-        // Forzar la apertura del selector de archivos
-        val intent = Intent(Intent.ACTION_GET_CONTENT)
-        intent.type = "*/*"  // O puedes especificar tipos de archivos como "image/*" para solo imágenes
-        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)  // Permitir la selección de múltiples archivos
-
-        try {
-            startActivityForResult(intent, FILE_CHOOSER_REQUEST_CODE)
-        } catch (e: ActivityNotFoundException) {
-            Log.e("WebView", "No hay actividad para manejar la selección de archivos: ${e.message}")
-        }
-    }
-
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-
-        if (requestCode == FILE_CHOOSER_REQUEST_CODE && resultCode == RESULT_OK) {
-            // Obtener las URIs de los archivos seleccionados
-            val results = if (data != null) {
-                getResultUri(data)
-            } else {
-                null
-            }
-
-            // Si los resultados no son nulos, pasarlos al callback
-            if (results != null) {
-                // Enviar los resultados directamente a la WebView sin inyectar el DOM
-                passFilesToWebView(results)
-            } else {
-                passFilesToWebView(null)
-            }
-        }
-    }
-
-    // Obtener las URIs de los archivos seleccionados
-    private fun getResultUri(data: Intent?): Array<Uri>? {
-        return if (data?.clipData != null) {
-            // Si se seleccionaron múltiples archivos, obtenemos los URIs de clipData
-            val itemCount = data.clipData?.itemCount ?: 0
-            val uris = Array(itemCount) { i ->
-                data.clipData?.getItemAt(i)?.uri ?: Uri.EMPTY
-            }
-            uris
-        } else {
-            // Si solo se seleccionó un archivo, obtenemos la URI directamente de data
-            arrayOf(data?.data ?: Uri.EMPTY)
-        }
-    }
-
-    // Función para inyectar los archivos sin recargar la página
-    // Dentro del WebView donde inyectas la imagen
-    private fun injectFilesFunction(view: WebView?) {
-        val jsCode = """
-    // Inyectar la imagen
-    function injectFilesToInput(files) {
-        console.log("📥 Iniciando inyección de archivos", files);
-
-        var input = document.querySelector('input[type="file"]');
-        if (!input) {
-            console.warn("⚠️ No se encontró input[type='file']");
-            return;
-        }
-
-        var dataTransfer = new DataTransfer();
-
-        files.forEach(function(file, index) {
-            console.log("📁 Procesando archivo[" + index + "]:", file.name, file.type);
-
-            if (!file.base64Data || file.base64Data.trim() === "") {
-                console.error("❌ base64Data vacío o inválido para:", file.name);
-                return;
-            }
-
-            try {
-                var byteCharacters = atob(file.base64Data);
-                var byteArrays = [];
-
-                for (var offset = 0; offset < byteCharacters.length; offset += 512) {
-                    var slice = byteCharacters.slice(offset, offset + 512);
-                    var byteNumbers = new Array(slice.length);
-                    for (var i = 0; i < slice.length; i++) {
-                        byteNumbers[i] = slice.charCodeAt(i);
-                    }
-                    byteArrays.push(new Uint8Array(byteNumbers));
-                }
-
-                var blob = new Blob(byteArrays, { type: file.type });
-                var newFile = new File([blob], file.name, { type: file.type });
-
-                console.log("✅ Archivo convertido a File:", newFile);
-                dataTransfer.items.add(newFile);
-
-            } catch (err) {
-                console.error("❌ Error al convertir archivo a File:", err);
-            }
-        });
-
-        input.files = dataTransfer.files;
-
-        try {
-            var event;
-            try {
-                event = new Event('change', { bubbles: true, cancelable: true });
-            } catch (e) {
-                event = document.createEvent('Event');
-                event.initEvent('change', true, true);
-            }
-
-            input.dispatchEvent(event);
-            console.log("📤 Evento 'change' disparado con archivos:", input.files.length);
-
-            // Aquí inyectamos la variable solo después de la inyección de archivos
-            localStorage.setItem('noResetForm', 'true');
-            console.log('🛡️ noResetForm activado');
-        } catch (err) {
-            console.error("❌ Error al disparar el evento 'change':", err);
-        }
-    }
-    """
-        view?.evaluateJavascript(jsCode, null)
-    }
-
-
-
-
-
-    private fun passFilesToWebView(files: Array<Uri>?) {
-        val fileObjects = files?.map { fileUri ->
-            val base64Data = getFileBase64(fileUri)  // Convierte el archivo a Base64
-            val fileName = fileUri.lastPathSegment ?: "unknown"
-            FileData(fileName, "image/jpeg", base64Data)  // Asignamos un tipo MIME como ejemplo
-        } ?: emptyList()
-
-        // Convertir la lista de objetos a JSON
-        val jsonFiles = Gson().toJson(fileObjects)
-
-        // Llamar a la función JavaScript con los archivos seleccionados
-        webViewInstance .evaluateJavascript("""
-        injectFilesToInput($jsonFiles);
-    """, null)
-    }
-
-    // Función para convertir el archivo a Base64
-    private fun getFileBase64(uri: Uri): String {
-        val inputStream = contentResolver.openInputStream(uri) ?: return ""
-        val byteArray = inputStream.readBytes()
-        return Base64.encodeToString(byteArray, Base64.DEFAULT)
-    }
-
-    private fun overWriteUrl(file: File, url: String): WebResourceResponse? {
-        return try {
-            // Si el archivo ya existe, lo eliminamos antes de descargar el nuevo contenido
-            if (file.exists()) {
-                file.delete()
-                Log.d("WebView", "Archivo en caché reemplazado: ${file.absolutePath}")
-            }
-
-            // Crear una nueva conexión a la URL
-            val connection = URL(url).openConnection() as HttpURLConnection
-            connection.connectTimeout = 5000
-            connection.readTimeout = 5000
-
-            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                val inputStream = connection.inputStream
-                val outputStream = FileOutputStream(file)
-
-                inputStream.copyTo(outputStream)
-                inputStream.close()
-                outputStream.close()
-
-                // Devolver el archivo actualizado como WebResourceResponse
-                Log.d("WebView", "Archivo guardado y reemplazado en caché: ${file.absolutePath}")
-
-                // Cargar el archivo de nuevo como respuesta
-                return WebResourceResponse("text/html", "UTF-8", FileInputStream(file))
-            } else {
-                Log.e("WebView", "Error al descargar el archivo: ${connection.responseCode}")
-                null
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-
-
-    private fun getCachedFile(url: String): File {
-        val uri = Uri.parse(url)
-        val fileName = uri.lastPathSegment ?: "index.html"
-        val file = File(filesDir, fileName)
-
-        Log.d("WebView", "🗂️ getCachedFile: URL=$url → Archivo esperado=$fileName")
-        Log.d("WebView", "📂 Ruta completa esperada: ${file.absolutePath}")
-        Log.d("WebView", "📦 ¿Existe el archivo?: ${file.exists()}")
-
-        return file
-    }
-
-
-    private fun getCachedWebResource(file: File, url: String): WebResourceResponse? {
-        return try {
-            val mimeType = getMimeType(url)
-            WebResourceResponse(mimeType, "UTF-8", FileInputStream(file))
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-
-    private fun getMimeType(url: String): String {
-        return when {
-            url.endsWith(".html") -> "text/html"
-            url.endsWith(".css") -> "text/css"
-            url.endsWith(".js") -> "application/javascript"
-            url.endsWith(".json") -> "application/json"
-            url.endsWith(".png") -> "image/png"
-            url.endsWith(".jpg") || url.endsWith(".jpeg") -> "image/jpeg"
-            url.endsWith(".svg") -> "image/svg+xml"
-            url.endsWith(".webp") -> "image/webp"
-            url.endsWith(".gif") -> "image/gif"
-            else -> "text/html"
-        }
-    }
-
-    private fun isNetworkAvailable(): Boolean {
-        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val activeNetwork = connectivityManager.activeNetworkInfo
-        return activeNetwork?.isConnectedOrConnecting == true
-    }
-
-    private fun requestPermissions() {
-        val missingPermissions = REQUIRED_PERMISSIONS.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }.toMutableList()
-
-        // Si hay permisos faltantes, solicitarlos
-        if (missingPermissions.isNotEmpty()) {
-            requestPermissionsLauncher.launch(missingPermissions.toTypedArray())
-        }
-    }
-
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        // Limpiar el ValueCallback para permitir que se reabra el selector de archivos
         mFilePathCallback?.onReceiveValue(null)
         mFilePathCallback = null
 
-        val webView = webViewInstance
-
-        // Si el WebView puede ir atrás en el historial
-        if (webView.canGoBack()) {
-            // Si el WebView tiene historial, navegar hacia atrás
-            webView.goBack()
+        if (binding.webView.canGoBack()) {
+            binding.webView.goBack()
         } else {
-            // Si no hay historial, proceder con el comportamiento predeterminado
             super.onBackPressed()
-        }
-    }
-    var currentUrl: String? = null
-
-    override fun onResume() {
-        super.onResume()
-        if (currentUrl != null) {
-            //Si activamos esto entonces al cargar la imagen se actualiza la página
-            //webViewInstance.loadUrl(currentUrl!!)  // Cargar la URL almacenada al reanudar
-        }
-    }
-
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        currentUrl = webViewInstance.url // Guarda la URL actual
-    }
-
-    override fun onRestoreInstanceState(savedInstanceState: Bundle) {
-        super.onRestoreInstanceState(savedInstanceState)
-        // Si ya hemos guardado una URL, no se recargará la página por defecto.
-        if (currentUrl != null) {
-            webViewInstance.loadUrl(currentUrl!!)
         }
     }
 }

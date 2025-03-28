@@ -54,5 +54,4 @@ class Notificaciones(private val context: Context) {
             callback(token)  // Llama al callback con el valor recuperado
         }
     }
-
 }
